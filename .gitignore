@@ -1,0 +1,43 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+pubspec.lock
+
+# Node (stray tooling at repo root; not part of Flutter)
+node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+
+# Android
+/android/app/debug
+/android/app/profile
+/android/app/release
+android/.gradle/
+android/captures/
+android/gradlew
+android/gradlew.bat
+android/local.properties
+android/**/GeneratedPluginRegistrant.java
+android/key.properties
+*.jks
+
+# iOS
+/ios/Flutter/
+/ios/.symlinks/
+/ios/Pods/
+/ios/Runner.xcworkspace/
+
+# Generated
+*.g.dart
+*.freezed.dart
