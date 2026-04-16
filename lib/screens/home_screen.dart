@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../state/game_store.dart';
 import '../models/game_models.dart';
+import '../widgets/start_match_modal.dart';
 import 'game_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -123,16 +124,32 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildPlayerButton(BuildContext context, Player player, String label) {
-    return ElevatedButton(
-      onPressed: () {
-        final store = context.read<GameStore>();
-        store.setGridSize(_selectedSize);
-        store.startGame(humanChoice: player);
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const GameScreen()),
+  void _showStartMatch(BuildContext context, Player player) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StartMatchModal(
+          humanPlayer: player,
+          boardLabel: '$_selectedSize × $_selectedSize board',
+          onBack: () => Navigator.of(dialogContext).pop(),
+          onLetsPlay: () {
+            Navigator.of(dialogContext).pop();
+            final store = context.read<GameStore>();
+            store.setGridSize(_selectedSize);
+            store.startGame(humanChoice: player);
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const GameScreen()),
+            );
+          },
         );
       },
+    );
+  }
+
+  Widget _buildPlayerButton(BuildContext context, Player player, String label) {
+    return ElevatedButton(
+      onPressed: () => _showStartMatch(context, player),
       style: ElevatedButton.styleFrom(
         backgroundColor: player == Player.x
             ? const Color(0xFF6C63FF)

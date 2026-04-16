@@ -7,6 +7,10 @@ import 'game_cell.dart';
 class GameBoard extends StatelessWidget {
   const GameBoard({super.key});
 
+  /// Gold frame + gutters (matches casual-game board accents).
+  static const Color _gridGold = Color(0xFFD4AF37);
+  static const double _gridGutter = 2.5;
+
   @override
   Widget build(BuildContext context) {
     return Consumer<GameStore>(
@@ -19,10 +23,11 @@ class GameBoard extends StatelessWidget {
             aspectRatio: 1,
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.03),
+                color: _gridGold,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.08),
+                  color: _gridGold,
+                  width: 2,
                 ),
               ),
               padding: const EdgeInsets.all(4),
@@ -30,8 +35,8 @@ class GameBoard extends StatelessWidget {
                 physics: const NeverScrollableScrollPhysics(),
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: size,
-                  mainAxisSpacing: 2,
-                  crossAxisSpacing: 2,
+                  mainAxisSpacing: _gridGutter,
+                  crossAxisSpacing: _gridGutter,
                 ),
                 itemCount: size * size,
                 itemBuilder: (context, index) {

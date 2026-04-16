@@ -23,26 +23,33 @@ class GameCell extends StatelessWidget {
   Widget build(BuildContext context) {
     final isSmall = gridSize >= 10;
 
+    final xTile = isWinningCell
+        ? const Color(0xFF4B3CBF)
+        : const Color(0xFF2B235C);
+    final oTile = isWinningCell
+        ? const Color(0xFFC73E62)
+        : const Color(0xFF5A2130);
+
     Color bgColor;
     if (isWinningCell) {
-      bgColor = (cell.owner == Player.x
-              ? const Color(0xFF6C63FF)
-              : const Color(0xFFFF6584))
-          .withValues(alpha: 0.6);
+      bgColor = cell.owner == Player.x ? xTile : oTile;
     } else if (cell.isFrozen) {
-      bgColor = const Color(0xFF38BDF8).withValues(alpha: 0.25);
+      bgColor = const Color(0xFF123A56);
     } else if (cell.owner == Player.x) {
-      bgColor = const Color(0xFF6C63FF).withValues(alpha: 0.3);
+      bgColor = xTile;
     } else if (cell.owner == Player.o) {
-      bgColor = const Color(0xFFFF6584).withValues(alpha: 0.3);
+      bgColor = oTile;
     } else {
-      bgColor = Colors.white.withValues(alpha: 0.04);
+      // Opaque so gold grid gutters read as lines, not a tint across empty cells.
+      bgColor = const Color(0xFF0F0E17);
     }
 
     final borderColor = isLastMove
         ? Colors.white.withValues(alpha: 0.6)
         : isWinningCell
             ? Colors.amber.withValues(alpha: 0.6)
+            : cell.owner != null
+                ? Colors.white.withValues(alpha: 0.18)
             : cell.isProtected
                 ? const Color(0xFF22D3EE).withValues(alpha: 0.5)
                 : Colors.white.withValues(alpha: 0.06);
@@ -74,9 +81,7 @@ class GameCell extends StatelessWidget {
 
     if (cell.owner == null) return const SizedBox.shrink();
 
-    final color = cell.owner == Player.x
-        ? const Color(0xFF6C63FF)
-        : const Color(0xFFFF6584);
+    const color = Colors.white;
 
     return Stack(
       alignment: Alignment.center,
@@ -84,9 +89,31 @@ class GameCell extends StatelessWidget {
         Text(
           cell.owner!.symbol,
           style: TextStyle(
-            fontSize: isSmall ? 14 : 24,
+            fontSize: isSmall ? 16 : 26,
+            fontWeight: FontWeight.w900,
+            foreground: Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = isSmall ? 1.6 : 2.1
+              ..color = const Color(0xFF000000),
+          ),
+        ),
+        Text(
+          cell.owner!.symbol,
+          style: TextStyle(
+            fontSize: isSmall ? 16 : 26,
             fontWeight: FontWeight.w900,
             color: color,
+            shadows: const [
+              Shadow(
+                color: Color(0xCC000000),
+                blurRadius: 1,
+                offset: Offset(0, 1),
+              ),
+              Shadow(
+                color: Color(0x99000000),
+                blurRadius: 4,
+              ),
+            ],
           ),
         ),
         if (cell.isProtected)

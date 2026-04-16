@@ -274,6 +274,184 @@ List<int> getAdjacentPositions(int position, int boardSize) {
   return adjacent;
 }
 
+bool _opponentHasOffensivePowerUps(
+  Map<Player, List<PowerUp>> storedPowerUps,
+  Player opponent,
+) {
+  return (storedPowerUps[opponent] ?? []).any(
+    (p) =>
+        p.isAvailable &&
+        (p.type == PowerUpType.bomb ||
+            p.type == PowerUpType.steal ||
+            p.type == PowerUpType.fire),
+  );
+}
+
+List<int> _findCriticalBlockingTiles(
+  List<CellValue> board,
+  Player computer,
+  Player opponent,
+  int gridSize,
+) {
+  final critical = <int>[];
+  for (int i = 0; i < board.length; i++) {
+    if (board[i].owner != computer || board[i].isProtected) continue;
+
+    final simulated = List<CellValue>.from(board);
+    simulated[i] = simulated[i].copyWith(owner: () => null);
+    final adjacent = getAdjacentPositions(i, gridSize);
+
+    var isCritical = false;
+    for (final pos in adjacent) {
+      if (simulated[pos].owner != opponent) continue;
+      final threat = checkNearWinSequences(simulated, pos, opponent, gridSize);
+      if (threat >= 5) {
+        isCritical = true;
+        break;
+      }
+    }
+
+    if (isCritical) {
+      critical.add(i);
+    }
+  }
+
+  return critical;
+}
+
+bool _wouldBlockOpponentWin(
+  List<CellValue> board,
+  int position,
+  Player opponent,
+  int gridSize,
+) {
+  if (position < 0 || position >= board.length) return false;
+  if (board[position].owner != opponent || board[position].isProtected) return false;
+
+  final before = checkWinCondition(board, opponent, gridSize) != null;
+
+  final simulated = List<CellValue>.from(board);
+  simulated[position] = simulated[position].copyWith(
+    owner: () => null,
+    isProtected: false,
+  );
+  final after = checkWinCondition(simulated, opponent, gridSize) != null;
+
+  if (before && !after) return true;
+
+  final nearWinBefore = checkNearWinSequences(board, position, opponent, gridSize);
+  final nearWinAfter =
+      checkNearWinSequences(simulated, position, opponent, gridSize);
+
+  return nearWinBefore >= 10 && nearWinAfter < nearWinBefore;
+}
+
+Set<int> _simulateStealComboThreats({
+  required List<CellValue> board,
+  required Player computer,
+  required Player opponent,
+  required int gridSize,
+  required Map<Player, List<PowerUp>> storedPowerUps,
+}) {
+  final hasSteal = (storedPowerUps[opponent] ?? [])
+      .any((p) => p.isAvailable && p.type == PowerUpType.steal);
+  if (!hasSteal) return <int>{};
+
+  final threats = <int>{};
+
+  for (int stealTarget = 0; stealTarget < board.length; stealTarget++) {
+    final cell = board[stealTarget];
+    if (cell.owner != computer || cell.isProtected) continue;
+
+    final afterSteal = List<CellValue>.from(board);
+    afterSteal[stealTarget] = afterSteal[stealTarget].copyWith(
+      owner: () => opponent,
+      isProtected: false,
+    );
+
+    if (checkWinCondition(afterSteal, opponent, gridSize) != null) {
+      threats.add(stealTarget);
+      continue;
+    }
+
+    for (int placePos = 0; placePos < afterSteal.length; placePos++) {
+      final placeCell = afterSteal[placePos];
+      if (placeCell.owner != null || placeCell.isFrozen) continue;
+      final afterPlace = List<CellValue>.from(afterSteal);
+      afterPlace[placePos] = afterPlace[placePos].copyWith(owner: () => opponent);
+      if (checkWinCondition(afterPlace, opponent, gridSize) != null) {
+        threats.add(stealTarget);
+        threats.add(placePos);
+      }
+    }
+  }
+
+  return threats;
+}
+
+Set<int> _simulateBombComboThreats({
+  required List<CellValue> board,
+  required Player computer,
+  required Player opponent,
+  required int gridSize,
+  required Map<Player, List<PowerUp>> storedPowerUps,
+}) {
+  final hasBomb = (storedPowerUps[opponent] ?? [])
+      .any((p) => p.isAvailable && p.type == PowerUpType.bomb);
+  if (!hasBomb) return <int>{};
+
+  final threats = <int>{};
+
+  for (int bombTarget = 0; bombTarget < board.length; bombTarget++) {
+    final cell = board[bombTarget];
+    if (cell.owner != computer || cell.isProtected) continue;
+
+    final afterBomb = List<CellValue>.from(board);
+    afterBomb[bombTarget] = CellValue.empty();
+
+    for (int placePos = 0; placePos < afterBomb.length; placePos++) {
+      final placeCell = afterBomb[placePos];
+      if (placeCell.owner != null || placeCell.isFrozen) continue;
+      final afterPlace = List<CellValue>.from(afterBomb);
+      afterPlace[placePos] = afterPlace[placePos].copyWith(owner: () => opponent);
+      if (checkWinCondition(afterPlace, opponent, gridSize) != null) {
+        threats.add(bombTarget);
+        threats.add(placePos);
+      }
+    }
+  }
+
+  return threats;
+}
+
+Set<int> _simulateFireComboThreats({
+  required List<CellValue> board,
+  required Player opponent,
+  required int gridSize,
+  required Map<Player, List<PowerUp>> storedPowerUps,
+}) {
+  final hasFire = (storedPowerUps[opponent] ?? [])
+      .any((p) => p.isAvailable && p.type == PowerUpType.fire);
+  if (!hasFire) return <int>{};
+
+  final threats = <int>{};
+  for (int i = 0; i < board.length; i++) {
+    final cell = board[i];
+    if (!cell.isFrozen || cell.owner != null) continue;
+    final afterFire = List<CellValue>.from(board);
+    afterFire[i] = afterFire[i].copyWith(
+      isFrozen: false,
+      freezeTurns: 0,
+      owner: () => opponent,
+    );
+    if (checkWinCondition(afterFire, opponent, gridSize) != null) {
+      threats.add(i);
+    }
+  }
+
+  return threats;
+}
+
 // ---------- Vulnerability / threat helpers ----------
 
 HumanThreatProfile analyzeHumanThreat({
@@ -665,6 +843,8 @@ ComputerMoveResult advancedFindBestMove({
       currentPlayer == Player.x ? Player.o : Player.x;
   final computer = currentPlayer;
   final available = getValidMoves(board);
+  final opponentHasOffense =
+      _opponentHasOffensivePowerUps(storedPowerUps, opponent);
 
   // 1. Can we win immediately?
   for (final pos in available) {
@@ -736,6 +916,89 @@ ComputerMoveResult advancedFindBestMove({
     return ComputerMoveResult(type: 'tile', position: criticalThreatPos);
   }
 
+  // 2.5 Combo threat defense (opponent power-up + placement immediate wins)
+  if (computer != null && opponentHasOffense) {
+    final comboThreats = <int>{
+      ..._simulateStealComboThreats(
+        board: board,
+        computer: computer,
+        opponent: opponent,
+        gridSize: gridSize,
+        storedPowerUps: storedPowerUps,
+      ),
+      ..._simulateBombComboThreats(
+        board: board,
+        computer: computer,
+        opponent: opponent,
+        gridSize: gridSize,
+        storedPowerUps: storedPowerUps,
+      ),
+      ..._simulateFireComboThreats(
+        board: board,
+        opponent: opponent,
+        gridSize: gridSize,
+        storedPowerUps: storedPowerUps,
+      ),
+    };
+
+    if (comboThreats.isNotEmpty) {
+      final myPowerUps = storedPowerUps[computer] ?? [];
+      final hasFortify = (currentPowerUp?.type == PowerUpType.fortify) ||
+          myPowerUps.any((p) => p.isAvailable && p.type == PowerUpType.fortify);
+      if (hasFortify) {
+        final protectableTargets = comboThreats.where((pos) {
+          final cell = board[pos];
+          return cell.owner == computer && !cell.isProtected;
+        }).toList();
+
+        if (protectableTargets.isNotEmpty) {
+          protectableTargets.sort((a, b) => checkNearWinSequences(
+                board,
+                b,
+                computer,
+                gridSize,
+              ).compareTo(checkNearWinSequences(board, a, computer, gridSize)));
+          return ComputerMoveResult(
+            type: 'powerup',
+            position: protectableTargets.first,
+            powerUpType: PowerUpType.fortify,
+          );
+        }
+      }
+
+      final hasFreeze = (currentPowerUp?.type == PowerUpType.freeze) ||
+          myPowerUps.any((p) => p.isAvailable && p.type == PowerUpType.freeze);
+      if (hasFreeze) {
+        final freezableTargets = comboThreats.where((pos) {
+          final cell = board[pos];
+          return cell.owner == null && !cell.isFrozen;
+        }).toList();
+
+        if (freezableTargets.isNotEmpty) {
+          freezableTargets.sort((a, b) => checkNearWinSequences(
+                board,
+                b,
+                opponent,
+                gridSize,
+              ).compareTo(checkNearWinSequences(board, a, opponent, gridSize)));
+          return ComputerMoveResult(
+            type: 'powerup',
+            position: freezableTargets.first,
+            powerUpType: PowerUpType.freeze,
+          );
+        }
+      }
+
+      final blockByTile = comboThreats.firstWhere(
+        available.contains,
+        orElse: () => -1,
+      );
+      if (blockByTile != -1) {
+        return ComputerMoveResult(type: 'tile', position: blockByTile);
+      }
+    }
+  }
+
   // 3. Aggressive power-up usage
   final totalTiles = board.length;
   final occupied = board.where((c) => c.owner != null).length;
@@ -759,12 +1022,20 @@ ComputerMoveResult advancedFindBestMove({
     if (targets.isNotEmpty) {
       final scored = targets.map((idx) {
         final defVal = _calculateStealValue(board, idx, computer, opponent, gridSize);
+        final blocksWin = _wouldBlockOpponentWin(board, idx, opponent, gridSize);
         final sim = List<CellValue>.from(board);
         sim[idx] = sim[idx].copyWith(owner: () => computer);
         final offVal = checkNearWinSequences(sim, idx, computer, gridSize);
-        return (position: idx, total: defVal + offVal);
+        return (
+          position: idx,
+          blocksWin: blocksWin,
+          total: defVal + offVal + (blocksWin ? 120 : 0)
+        );
       }).toList()
-        ..sort((a, b) => b.total.compareTo(a.total));
+        ..sort((a, b) {
+          if (a.blocksWin != b.blocksWin) return b.blocksWin ? 1 : -1;
+          return b.total.compareTo(a.total);
+        });
 
       final threshold = gameProgress < 0.2 ? 8.0 : 5.0;
       if (scored.first.total >= threshold) {
@@ -785,10 +1056,14 @@ ComputerMoveResult advancedFindBestMove({
       final scored = targets
           .map((idx) => (
                 position: idx,
+                blocksWin: _wouldBlockOpponentWin(board, idx, opponent, gridSize),
                 value: _calculateStealValue(board, idx, computer, opponent, gridSize),
               ))
           .toList()
-        ..sort((a, b) => b.value.compareTo(a.value));
+        ..sort((a, b) {
+          if (a.blocksWin != b.blocksWin) return b.blocksWin ? 1 : -1;
+          return b.value.compareTo(a.value);
+        });
 
       final threshold = gameProgress < 0.2 ? 15.0 : 10.0;
       if (scored.first.value >= threshold) {
@@ -829,10 +1104,25 @@ ComputerMoveResult advancedFindBestMove({
       if (board[i].owner == computer && !board[i].isProtected) ours.add(i);
     }
     if (ours.isNotEmpty) {
-      final opponentHasOffense =
-          (storedPowerUps[opponent] ?? []).any((p) =>
-              p.isAvailable &&
-              (p.type == PowerUpType.steal || p.type == PowerUpType.bomb));
+      final criticalBlockingTiles = _findCriticalBlockingTiles(
+        board,
+        computer,
+        opponent,
+        gridSize,
+      );
+      if (criticalBlockingTiles.isNotEmpty) {
+        criticalBlockingTiles.sort((a, b) => checkNearWinSequences(
+              board,
+              b,
+              computer,
+              gridSize,
+            ).compareTo(checkNearWinSequences(board, a, computer, gridSize)));
+        return ComputerMoveResult(
+          type: 'powerup',
+          position: criticalBlockingTiles.first,
+          powerUpType: PowerUpType.fortify,
+        );
+      }
 
       final scored = ours
           .map((idx) => (

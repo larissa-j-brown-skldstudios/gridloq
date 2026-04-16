@@ -20,7 +20,6 @@ class GameStore extends ChangeNotifier {
   Player? _humanPlayer;
   PowerUp? _currentPowerUp;
   Map<Player, List<PowerUp>> _storedPowerUps = {Player.x: [], Player.o: []};
-  bool _computerMoveMade = false;
   bool _computerPowerupUsed = false;
   String? _errorMessage;
   bool _gameStarted = false;
@@ -75,7 +74,6 @@ class GameStore extends ChangeNotifier {
     _humanPlayer = humanChoice;
     _isComputerPlayer = true;
     _storedPowerUps = {Player.x: [], Player.o: []};
-    _computerMoveMade = false;
     _computerPowerupUsed = false;
     _lastMove = null;
     _winningLine = null;
@@ -129,7 +127,9 @@ class GameStore extends ChangeNotifier {
     if (_currentPowerUp == null || _currentPlayer == null) return;
 
     final playerPowerUps = _storedPowerUps[_currentPlayer!] ?? [];
-    if (playerPowerUps.length < 5) {
+    final alreadyStored =
+        playerPowerUps.any((powerUp) => powerUp.id == _currentPowerUp!.id);
+    if (!alreadyStored && playerPowerUps.length < 5) {
       _storedPowerUps[_currentPlayer!] = [...playerPowerUps, _currentPowerUp!];
     }
     _currentPowerUp = null;
@@ -140,39 +140,71 @@ class GameStore extends ChangeNotifier {
   // Player chooses to use the current (or a stored) power-up
   void selectPowerUpToUse(PowerUp powerUp) {
     if (_gameOver) return;
+    if (_currentPlayer == null) return;
+
+    if (!canUsePowerUpNow(powerUp)) {
+      // If this is the current offered power-up, auto-store it and continue.
+      if (_currentPhase == TurnPhase.powerUpDecision &&
+          _currentPowerUp?.id == powerUp.id) {
+        final playerPowerUps = _storedPowerUps[_currentPlayer!] ?? [];
+        final alreadyStored = playerPowerUps.any((p) => p.id == powerUp.id);
+        if (!alreadyStored && playerPowerUps.length < 5) {
+          _storedPowerUps[_currentPlayer!] = [...playerPowerUps, powerUp];
+        }
+        _currentPowerUp = null;
+      } else {
+        // For stored power-ups with no valid targets, just cancel usage attempt.
+        _currentPowerUp = null;
+      }
+      _currentPhase = TurnPhase.tilePlacement;
+      _errorMessage = 'No valid targets for ${powerUp.type.name.toUpperCase()} right now.';
+      notifyListeners();
+      return;
+    }
+
+    _errorMessage = null;
     _currentPowerUp = powerUp;
     _currentPhase = TurnPhase.powerUpAction;
     notifyListeners();
   }
 
+  // Exit action mode and continue the turn without consuming the selected power-up.
+  void cancelPowerUpAction() {
+    if (_currentPhase != TurnPhase.powerUpAction) return;
+    _currentPhase = TurnPhase.tilePlacement;
+    notifyListeners();
+  }
+
   void applyPowerUp(int position) {
     if (_currentPowerUp == null || _currentPlayer == null) return;
+    if (position < 0 || position >= _board.length) return;
     final pu = _currentPowerUp!;
     final cell = _board[position];
 
+    if (!_isValidPowerUpTarget(pu, cell, _currentPlayer!)) {
+      _errorMessage = 'That tile is not a valid target for ${pu.type.name.toUpperCase()}.';
+      notifyListeners();
+      return;
+    }
+
     switch (pu.type) {
       case PowerUpType.bomb:
-        if (cell.owner == null || cell.owner == _currentPlayer || cell.isProtected) return;
         _board[position] = CellValue.empty();
         break;
 
       case PowerUpType.steal:
-        if (cell.owner == null || cell.owner == _currentPlayer || cell.isProtected) return;
         _board[position] = cell.copyWith(owner: () => _currentPlayer, lastMove: true);
         break;
 
       case PowerUpType.freeze:
-        if (cell.owner != null || cell.isFrozen) return;
         _board[position] = cell.copyWith(isFrozen: true, freezeTurns: 6);
         break;
 
       case PowerUpType.fire:
-        if (!cell.isFrozen) return;
         _board[position] = cell.copyWith(isFrozen: false, freezeTurns: 0);
         break;
 
       case PowerUpType.fortify:
-        if (cell.owner != _currentPlayer || cell.isProtected) return;
         _board[position] = cell.copyWith(isProtected: true, protectionTurns: 6);
         break;
     }
@@ -184,6 +216,7 @@ class GameStore extends ChangeNotifier {
 
     _currentPowerUp = null;
     _currentPhase = TurnPhase.tilePlacement;
+    _errorMessage = null;
 
     // Check win after steal
     if (pu.type == PowerUpType.steal) {
@@ -203,9 +236,6 @@ class GameStore extends ChangeNotifier {
     if (position < 0 || position >= _board.length) return;
     if (_board[position].owner != null) return;
     if (_board[position].isFrozen) return;
-
-    final isComputer = _humanPlayer != _currentPlayer && _isComputerPlayer;
-    if (isComputer && _computerMoveMade) return;
 
     // Place tile
     for (int i = 0; i < _board.length; i++) {
@@ -232,7 +262,8 @@ class GameStore extends ChangeNotifier {
     // Store unused power-up
     if (_currentPowerUp != null && _currentPlayer != null) {
       final pups = _storedPowerUps[_currentPlayer!] ?? [];
-      if (pups.length < 5) {
+      final alreadyStored = pups.any((powerUp) => powerUp.id == _currentPowerUp!.id);
+      if (!alreadyStored && pups.length < 5) {
         _storedPowerUps[_currentPlayer!] = [...pups, _currentPowerUp!];
       }
     }
@@ -241,7 +272,6 @@ class GameStore extends ChangeNotifier {
     final next = _currentPlayer == Player.x ? Player.o : Player.x;
     _currentPlayer = next;
     _currentTurn++;
-    _computerMoveMade = false;
     _computerPowerupUsed = false;
 
     // Generate power-up for next player
@@ -295,12 +325,40 @@ class GameStore extends ChangeNotifier {
       return true;
     }
 
+    final hasSteal = (_currentPowerUp?.type == PowerUpType.steal) ||
+        (_storedPowerUps[_currentPlayer!] ?? [])
+            .any((p) => p.type == PowerUpType.steal && p.isAvailable);
+    if (hasSteal && _board.any((c) => c.owner == opponent && !c.isProtected)) {
+      return true;
+    }
+
     final hasFire = (_currentPowerUp?.type == PowerUpType.fire) ||
         (_storedPowerUps[_currentPlayer!] ?? [])
             .any((p) => p.type == PowerUpType.fire && p.isAvailable);
     if (hasFire && _board.any((c) => c.isFrozen)) return true;
 
     return false;
+  }
+
+  bool canUsePowerUpNow(PowerUp powerUp) {
+    if (_currentPlayer == null) return false;
+    return _board.any((cell) => _isValidPowerUpTarget(powerUp, cell, _currentPlayer!));
+  }
+
+  bool _isValidPowerUpTarget(PowerUp powerUp, CellValue cell, Player actingPlayer) {
+    switch (powerUp.type) {
+      case PowerUpType.bomb:
+      case PowerUpType.steal:
+        return cell.owner != null &&
+            cell.owner != actingPlayer &&
+            !cell.isProtected;
+      case PowerUpType.freeze:
+        return cell.owner == null && !cell.isFrozen;
+      case PowerUpType.fire:
+        return cell.isFrozen;
+      case PowerUpType.fortify:
+        return cell.owner == actingPlayer && !cell.isProtected;
+    }
   }
 
   void _scheduleComputerMove() {
@@ -351,7 +409,6 @@ class GameStore extends ChangeNotifier {
               humanPlayer: _humanPlayer,
             );
             if (tilePos != -1) {
-              _computerMoveMade = true;
               makeMove(tilePos);
             }
           });
@@ -366,12 +423,10 @@ class GameStore extends ChangeNotifier {
             humanPlayer: _humanPlayer,
           );
           if (tilePos != -1) {
-            _computerMoveMade = true;
             makeMove(tilePos);
           }
         }
       } else {
-        _computerMoveMade = true;
         makeMove(result.position);
       }
     });

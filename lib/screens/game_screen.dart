@@ -9,6 +9,8 @@ import '../widgets/power_up_bar.dart';
 class GameScreen extends StatelessWidget {
   const GameScreen({super.key});
 
+  static const double _playAreaMaxWidth = 760;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -34,16 +36,22 @@ class GameScreen extends StatelessWidget {
       body: Consumer<GameStore>(
         builder: (context, store, _) {
           return SafeArea(
-            child: Column(
-              children: [
-                const GameStatusBar(),
-                const SizedBox(height: 8),
-                const PowerUpBar(),
-                const SizedBox(height: 8),
-                Expanded(child: const GameBoard()),
-                if (store.gameOver) _buildGameOverBar(context, store),
-                const SizedBox(height: 16),
-              ],
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: _playAreaMaxWidth),
+                child: Column(
+                  children: [
+                    const GameStatusBar(),
+                    const SizedBox(height: 8),
+                    const PowerUpBar(),
+                    const SizedBox(height: 8),
+                    const PowerUpDecisionBanner(),
+                    Expanded(child: const GameBoard()),
+                    if (store.gameOver) _buildGameOverBar(context, store),
+                    const SizedBox(height: 16),
+                  ],
+                ),
+              ),
             ),
           );
         },

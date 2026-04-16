@@ -1,5 +1,6 @@
 import 'dart:math';
 import '../models/game_models.dart';
+import 'game_logic.dart';
 
 List<CellValue> updateFreezeTimers(List<CellValue> board) {
   return board.map((cell) {
@@ -32,6 +33,62 @@ bool canFreezeTile(CellValue cell) => cell.owner == null && !cell.isFrozen;
 bool canBombOrStealTile(CellValue cell) => cell.owner != null;
 
 bool canMeltTile(CellValue cell) => cell.isFrozen;
+
+bool detectGridlockRisk({
+  required List<CellValue> board,
+  required int gridSize,
+  required int currentTurn,
+  required Map<Player, List<PowerUp>> storedPowerUps,
+  PowerUp? currentPowerUp,
+}) {
+  final totalTiles = gridSize * gridSize;
+  final occupiedTiles = board.where((cell) => cell.owner != null).length;
+  final fillRatio = occupiedTiles / totalTiles;
+
+  // 1) Board fill threshold
+  final fillThreshold = gridSize <= 5 ? 0.60 : (gridSize <= 7 ? 0.65 : 0.70);
+  if (fillRatio < fillThreshold) return false;
+
+  // 2) Minimum turns to avoid triggering too early
+  final minTurns = gridSize <= 5 ? 6 : (gridSize <= 7 ? 10 : 15);
+  if (currentTurn < minTurns) return false;
+
+  // 3) If either player has an immediate winning move, don't force gridlock mode
+  for (int pos = 0; pos < board.length; pos++) {
+    if (board[pos].owner != null || board[pos].isFrozen) continue;
+    if (wouldCreateWin(board, pos, Player.x, gridSize) ||
+        wouldCreateWin(board, pos, Player.o, gridSize)) {
+      return false;
+    }
+  }
+
+  // 4) Only trigger if offensive power-ups are scarce across both players
+  int countOffensive(List<PowerUp> powerUps) {
+    return powerUps
+        .where(
+          (powerUp) =>
+              powerUp.isAvailable &&
+              (powerUp.type == PowerUpType.bomb ||
+                  powerUp.type == PowerUpType.steal),
+        )
+        .length;
+  }
+
+  var totalOffensive =
+      countOffensive(storedPowerUps[Player.x] ?? []) +
+          countOffensive(storedPowerUps[Player.o] ?? []);
+
+  if (currentPowerUp != null &&
+      (currentPowerUp.type == PowerUpType.bomb ||
+          currentPowerUp.type == PowerUpType.steal) &&
+      currentPowerUp.isAvailable) {
+    totalOffensive += 1;
+  }
+
+  if (totalOffensive >= 2) return false;
+
+  return true;
+}
 
 PowerUp generatePowerUp() {
   final weightedPowerUps = [
@@ -67,17 +124,13 @@ PowerUp generateSmartPowerUp({
   PowerUp? currentPowerUp,
   int currentTurn = 0,
 }) {
-  final opponent =
-      currentPlayer == Player.x ? Player.o : Player.x;
-  final totalTiles = board.length;
-  final occupiedTiles = board.where((c) => c.owner != null).length;
-  final fillRatio = occupiedTiles / totalTiles;
-
-  // Gridlock prevention
-  final fillThreshold = gridSize <= 5 ? 0.60 : (gridSize <= 7 ? 0.65 : 0.70);
-  final minTurns = gridSize <= 5 ? 6 : (gridSize <= 7 ? 10 : 15);
-
-  if (fillRatio >= fillThreshold && currentTurn >= minTurns) {
+  if (detectGridlockRisk(
+    board: board,
+    gridSize: gridSize,
+    currentTurn: currentTurn,
+    storedPowerUps: storedPowerUps,
+    currentPowerUp: currentPowerUp,
+  )) {
     final type = Random().nextBool() ? PowerUpType.bomb : PowerUpType.steal;
     return PowerUp(id: PowerUp.generateId(), type: type);
   }
